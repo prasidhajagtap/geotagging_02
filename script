@@ -1,0 +1,261 @@
+// --- CONFIGURATION ---
+const SUPABASE_URL = 'https://svhbqvcabbzrxvndxtjm.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2aGJxdmNhYmJ6cnh2bmR4dGptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTA0MjksImV4cCI6MjA5MDc4NjQyOX0.lYIsM5zN4uGKbP79avcKR_EaAlP5tu2N688OgZI6wZA';
+// FIX: Use a different name for the variable to avoid the "already declared" error
+const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// --- STATE ---
+let currentUser = { 
+    name: '', id: '', 
+    clockIn: null, isClockedIn: false, clockInCoords: '', clockInLoc: '', 
+    clockOut: null, clockOutCoords: '', clockOutLoc: '',
+    submittedDate: null 
+};
+let timerInterval;
+
+// --- VALIDATION ---
+const validateName = (str) => /^[a-zA-Z\s]*$/.test(str);
+const validateID = (str) => /^[0-9]*$/.test(str);
+const validateLocation = (str) => /^[a-zA-Z0-9\s]*$/.test(str) && str.length <= 60;
+
+// --- DOM ELEMENTS ---
+const nameInput = document.getElementById('user-name');
+const idInput = document.getElementById('poornata-id');
+const authError = document.getElementById('auth-error');
+const btnStart = document.getElementById('btn-start');
+const btnSubmitDay = document.getElementById('btn-submit-day');
+
+// --- INITIALIZATION ---
+window.onload = () => {
+    const saved = localStorage.getItem('seamex_user');
+    if (saved) {
+        currentUser = JSON.parse(saved);
+        
+        // Midnight / New Day Check
+        const todayStr = new Date().toDateString();
+        
+        if (currentUser.submittedDate === todayStr) {
+            // Already submitted today -> Show summary
+            showCompletedUI();
+        } else if (currentUser.submittedDate && currentUser.submittedDate !== todayStr) {
+            // It's a new day! Keep identity, wipe shift data.
+            resetShiftData();
+            prefillAuth();
+        } else if (currentUser.isClockedIn) {
+            // Ongoing shift
+            showMainUI();
+        } else {
+            // Has data but hasn't started
+            prefillAuth();
+        }
+    }
+};
+
+function resetShiftData() {
+    currentUser.clockIn = null;
+    currentUser.isClockedIn = false;
+    currentUser.clockInCoords = '';
+    currentUser.clockInLoc = '';
+    currentUser.clockOut = null;
+    currentUser.clockOutCoords = '';
+    currentUser.clockOutLoc = '';
+    currentUser.submittedDate = null;
+    saveState();
+}
+
+function prefillAuth() {
+    if (currentUser.name) nameInput.value = currentUser.name;
+    if (currentUser.id) idInput.value = currentUser.id;
+    validateAuthInputs(); // Trigger validation to enable button
+}
+
+// --- REAL-TIME VALIDATION ---
+function validateAuthInputs() {
+    const n = nameInput.value;
+    const i = idInput.value;
+    let isValid = true;
+    let errMsg = "";
+
+    if (n.length > 0 && !validateName(n)) { isValid = false; errMsg = "Name must contain only alphabets."; }
+    else if (i.length > 0 && !validateID(i)) { isValid = false; errMsg = "Poornata ID must contain only numbers."; }
+    else if (n.trim() === "" || i.trim() === "") { isValid = false; }
+
+    if (errMsg) {
+        authError.innerText = errMsg;
+        authError.classList.remove('hidden');
+    } else {
+        authError.classList.add('hidden');
+    }
+
+    btnStart.disabled = !isValid;
+}
+
+nameInput.addEventListener('input', validateAuthInputs);
+idInput.addEventListener('input', validateAuthInputs);
+
+// --- START DAY BUTTON ---
+btnStart.addEventListener('click', async () => {
+    // Location Permission Prompt
+    try {
+        await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true });
+        });
+    } catch (err) {
+        alert("Location access is required for Geo-Attendance. Please enable it in your browser settings.");
+        return; 
+    }
+
+    currentUser.name = nameInput.value.trim();
+    currentUser.id = idInput.value.trim();
+    saveState();
+    showMainUI();
+});
+
+function showMainUI() {
+    document.getElementById('auth-section').classList.add('hidden');
+    document.getElementById('main-section').classList.remove('hidden');
+    document.getElementById('welcome-note').innerText = `Welcome ${currentUser.name}!`;
+    document.getElementById('display-id').innerText = currentUser.id;
+    
+    if (currentUser.isClockedIn) {
+        updateUIAfterClockIn();
+        if (currentUser.clockOut) {
+            updateUIAfterClockOut();
+        }
+    }
+}
+
+// --- CLOCK IN ---
+document.getElementById('btn-clock-in').addEventListener('click', async () => {
+    const locName = document.getElementById('in-location-name').value.trim();
+    if (!validateLocation(locName) || locName === "") {
+        alert("Provide a valid location name (Max 60 chars, no special characters).");
+        return;
+    }
+
+    const coords = await getPreciseCoords();
+    if (!coords) return;
+
+    currentUser.clockIn = new Date().toISOString();
+    currentUser.clockInCoords = coords;
+    currentUser.clockInLoc = locName;
+    currentUser.isClockedIn = true;
+    
+    updateUIAfterClockIn();
+    saveState();
+});
+
+function updateUIAfterClockIn() {
+    document.getElementById('clock-in-group').classList.add('hidden');
+    document.getElementById('clock-out-group').classList.remove('hidden');
+    
+    const statusCard = document.getElementById('status-card');
+    statusCard.classList.remove('hidden'); // Reveal status card
+    
+    document.getElementById('clock-in-info').innerText = `In: ${new Date(currentUser.clockIn).toLocaleTimeString()} - ${currentUser.clockInLoc}`;
+    startTimer();
+}
+
+// --- CLOCK OUT ---
+document.getElementById('btn-clock-out').addEventListener('click', async () => {
+    const locName = document.getElementById('out-location-name').value.trim();
+    if (!validateLocation(locName) || locName === "") {
+        alert("Provide a valid location name.");
+        return;
+    }
+
+    const coords = await getPreciseCoords();
+    if (!coords) return;
+
+    currentUser.clockOut = new Date().toISOString();
+    currentUser.clockOutCoords = coords;
+    currentUser.clockOutLoc = locName;
+    
+    updateUIAfterClockOut();
+    saveState();
+});
+
+function updateUIAfterClockOut() {
+    clearInterval(timerInterval);
+    document.getElementById('clock-out-group').classList.add('hidden');
+    
+    const outInfo = document.getElementById('clock-out-info');
+    outInfo.innerText = `Out: ${new Date(currentUser.clockOut).toLocaleTimeString()} - ${currentUser.clockOutLoc}`;
+    outInfo.classList.remove('hidden');
+
+    btnSubmitDay.classList.remove('hidden');
+}
+
+// --- SUBMIT ---
+btnSubmitDay.addEventListener('click', async () => {
+    // Prevent double clicking & double entries
+    btnSubmitDay.disabled = true;
+    btnSubmitDay.innerText = "Saving Data...";
+
+    const { error } = await _supabase
+        .from('attendance')
+        .insert([{
+            user_name: currentUser.name,
+            employee_id: currentUser.id,
+            clock_in_time: currentUser.clockIn,
+            clock_in_coords: currentUser.clockInCoords,
+            clock_in_location_name: currentUser.clockInLoc,
+            clock_out_time: currentUser.clockOut,
+            clock_out_coords: currentUser.clockOutCoords,
+            clock_out_location_name: currentUser.clockOutLoc,
+            status: 'completed'
+        }]);
+
+    if (!error) {
+        currentUser.submittedDate = new Date().toDateString();
+        saveState();
+        showCompletedUI();
+    } else {
+        alert("Error: " + error.message);
+        btnSubmitDay.disabled = false;
+        btnSubmitDay.innerText = "Submit the Day";
+    }
+});
+
+function showCompletedUI() {
+    document.getElementById('auth-section').classList.add('hidden');
+    document.getElementById('main-section').classList.add('hidden');
+    const compSection = document.getElementById('completed-section');
+    compSection.classList.remove('hidden');
+
+    document.getElementById('summary-name').innerText = currentUser.name;
+    document.getElementById('summary-id').innerText = currentUser.id;
+    document.getElementById('summary-in').innerText = `IN: ${new Date(currentUser.clockIn).toLocaleTimeString()} (${currentUser.clockInLoc})`;
+    
+    if (currentUser.clockOut) {
+        document.getElementById('summary-out').innerText = `OUT: ${new Date(currentUser.clockOut).toLocaleTimeString()} (${currentUser.clockOutLoc})`;
+    } else {
+        document.getElementById('summary-out').innerText = "System Auto-Submit";
+    }
+}
+
+// --- UTILS ---
+async function getPreciseCoords() {
+    return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => resolve(`${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`),
+            () => { alert("Position access denied."); resolve(null); },
+            { enableHighAccuracy: true }
+        );
+    });
+}
+
+function startTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        const diff = new Date() - new Date(currentUser.clockIn);
+        const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
+        const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
+        const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+        document.getElementById('timer-display').innerText = `Shift Duration: ${h}:${m}:${s}`;
+    }, 1000);
+}
+
+function saveState() {
+    localStorage.setItem('seamex_user', JSON.stringify(currentUser));
+}
