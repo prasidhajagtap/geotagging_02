@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seamex Geo-Attendance</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="glass-container">
+        <header>
+            <img src="NEW Seamex logo_testing march 11.png" alt="Seamex Logo" class="logo">
+            <h2 class="page-title">Mark your attendance for the day</h2>
+            <p class="tagline">seamless experience always</p>
+        </header>
+
+        <section id="auth-section" class="ui-step">
+            <div class="input-group">
+                <input type="text" id="user-name" placeholder="Full Name" maxlength="60">
+                <input type="text" id="poornata-id" placeholder="Poornata ID (Numbers Only)">
+                <p id="auth-error" class="error-text hidden"></p>
+            </div>
+            <button id="btn-start" class="btn-primary" disabled>Start Day</button>
+        </section>
+
+        <section id="main-section" class="ui-step hidden">
+            <h3 id="welcome-note">Welcome!</h3>
+            <p class="id-badge">Poornata ID: <span id="display-id"></span></p>
+            
+            <div id="status-card" class="status-card hidden">
+                <p id="timer-display" class="highlight-text">Shift Duration: 00:00:00</p>
+                <div class="info-row">
+                    <p id="clock-in-info" class="small-text"></p>
+                </div>
+                <div class="info-row">
+                    <p id="clock-out-info" class="small-text hidden"></p>
+                </div>
+            </div>
+
+            <div class="action-area">
+                <div id="clock-in-group">
+                    <input type="text" id="in-location-name" placeholder="Clock-in Location Name" maxlength="60">
+                    <button id="btn-clock-in" class="btn-gradient">Clock In</button>
+                </div>
+
+                <div id="clock-out-group" class="hidden">
+                    <input type="text" id="out-location-name" placeholder="Clock-out Location Name" maxlength="60">
+                    <button id="btn-clock-out" class="btn-danger">Clock Out</button>
+                </div>
+            </div>
+
+            <button id="btn-submit-day" class="btn-submit hidden">Submit the Day</button>
+        </section>
+
+        <section id="completed-section" class="ui-step hidden">
+            <h3 class="success-text">Attendance Logged</h3>
+            <p class="small-text mb-20">Your record for today has been securely saved.</p>
+            <div class="status-card text-left">
+                <p><strong>Name:</strong> <span id="summary-name"></span></p>
+                <p><strong>Poornata ID:</strong> <span id="summary-id"></span></p>
+                <hr>
+                <p id="summary-in" class="small-text"></p>
+                <p id="summary-out" class="small-text"></p>
+            </div>
+        </section>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
